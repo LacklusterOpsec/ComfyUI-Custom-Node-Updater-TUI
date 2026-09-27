@@ -7,18 +7,24 @@ is skipped rather than clobbered. Dirty repos can be pulled with a temporary
 stash when you opt in.
 
 Usage:
-    <python> -X utf8 repo_updater_tui.py [--nodes-dir DIR] [--no-fetch] [--no-autostash] [--self-test]
+    <python> -X utf8 ComfyUI-Custom-Node-Updater-TUI.py [--nodes-dir DIR] [--no-fetch] [--no-autostash] [--self-test]
 
     --nodes-dir     Directory of git repos to scan (default: $COMFYUI_CUSTOM_NODES,
-                    then <ComfyUI>/custom_nodes, then ./custom_nodes)
+                    then the folder chosen last time, then $COMFYUI_DIR, then a
+                    custom_nodes directory found by walking up from the script.
+                    If none is found, the TUI asks for one.)
     --no-fetch      Compare against local refs only; skip the network fetch
     --no-autostash  Never stash local edits; skip dirty repos instead
     --self-test     Build throwaway repos, run a headless scan and pull, then exit
+
+In the TUI, press `o` to pick a different custom_nodes folder; the choice is
+remembered in a small config file for next time.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -36,6 +42,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     DataTable,
+    DirectoryTree,
     Footer,
     Header,
     Input,
@@ -81,29 +88,66 @@ STATE_STYLE = {
 }
 
 
-def resolve_nodes_dir(candidate: Path | None) -> Path:
-    """Locate the directory of repos: explicit arg, env var, or a nearby custom_nodes."""
-    if candidate is not None:
-        return Path(candidate).resolve()
-    env = os.environ.get("COMFYUI_CUSTOM_NODES")
-    if env:
-        return Path(env).resolve()
-    env = os.environ.get("COMFYUI_DIR")
-    if env and (Path(env) / "custom_nodes").is_dir():
-        return (Path(env) / "custom_nodes").resolve()
-    here = Path(__file__).resolve().parent
-    cwd = Path.cwd()
-    for cand in (
-        cwd / "custom_nodes",
-        here / "custom_nodes",
-        here.parent / "ComfyUI" / "custom_nodes",
-        here.parent / "custom_nodes",
-    ):
+def config_path() -> Path:
+    """Where the remembered custom_nodes folder lives."""
+    base = os.environ.get("APPDATA") or os.environ.get("XDG_CONFIG_HOME")
+    root = Path(base) if base else Path.home() / ".config"
+    return root / "ComfyUI-Custom-Node-Updater-TUI" / "config.json"
+
+
+def load_saved_nodes_dir() -> Path | None:
+    try:
+        saved = json.loads(config_path().read_text(encoding="utf-8")).get("nodes_dir")
+    except (OSError, ValueError, AttributeError):
+        return None
+    if isinstance(saved, str) and Path(saved).is_dir():
+        return Path(saved)
+    return None
+
+
+def save_nodes_dir(path: Path) -> None:
+    target = config_path()
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"nodes_dir": str(path)}, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def find_custom_nodes(start: Path) -> Path | None:
+    """Walk up from start looking for a ComfyUI-style custom_nodes directory."""
+    if start.name == "custom_nodes" and start.is_dir():
+        return start.resolve()
+    for parent in start.parents:
+        cand = parent / "custom_nodes"
         if cand.is_dir():
             return cand.resolve()
-    if cwd.name == "custom_nodes":
-        return cwd.resolve()
-    return cwd.resolve()
+    return None
+
+
+def resolve_nodes_dir(candidate: Path | None) -> Path | None:
+    """Locate the directory of repos, or None when the TUI should ask.
+
+    Order: explicit --nodes-dir, $COMFYUI_CUSTOM_NODES, the folder chosen last
+    time, $COMFYUI_DIR, then a custom_nodes found by walking up from the working
+    directory and the script. None means nothing was found on this machine yet.
+    """
+    if candidate is not None:
+        return Path(candidate).expanduser().resolve()
+    env = os.environ.get("COMFYUI_CUSTOM_NODES")
+    if env:
+        return Path(env).expanduser().resolve()
+    env = os.environ.get("COMFYUI_DIR")
+    if env:
+        path = Path(env).expanduser()
+        if path.name != "custom_nodes" and (path / "custom_nodes").is_dir():
+            path = path / "custom_nodes"
+        if path.is_dir():
+            return path.resolve()
+    saved = load_saved_nodes_dir()
+    if saved is not None:
+        return saved
+    return find_custom_nodes(Path.cwd()) or find_custom_nodes(Path(__file__).resolve().parent)
 
 
 def git(path: Path, *args: str, timeout: int = GIT_TIMEOUT) -> subprocess.CompletedProcess[str] | None:
@@ -326,7 +370,7 @@ def pull(repo: Repo, autostash: bool) -> tuple[bool, str]:
         return False, reason
     stashed = False
     if repo.dirty and autostash:
-        proc = git(repo.path, "stash", "push", "--include-untracked", "-m", "repo-updater: auto-stash")
+        proc = git(repo.path, "stash", "push", "--include-untracked", "-m", "ComfyUI-Custom-Node-Updater-TUI: auto-stash")
         if proc is None or proc.returncode != 0:
             return False, "stash failed"
         stashed = True
@@ -398,8 +442,59 @@ class ConfirmScreen(ModalScreen[bool]):
     def _no(self) -> None:
         self.dismiss(False)
 
-class RepoUpdaterApp(App[None]):
-    TITLE = "ComfyUI Repo Updater"
+
+class FolderPickerScreen(ModalScreen[Path | None]):
+    """Browse for the custom_nodes folder when it cannot be found automatically."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, start: Path) -> None:
+        super().__init__()
+        self._start = start if start.is_dir() else Path.home()
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker-box"):
+            yield Static("[bold]Choose your custom_nodes folder[/bold]", id="picker-title")
+            yield Static(
+                "[dim]Browse to the folder holding your node repos, then press Use folder. "
+                "Type or paste a path above the tree too.[/dim]",
+                id="picker-hint",
+            )
+            yield Input(value=str(self._start), id="picker-path")
+            yield DirectoryTree(str(self._start), id="picker-tree")
+            with Horizontal(id="picker-buttons"):
+                yield Button("Use folder", variant="primary", id="picker-use")
+                yield Button("Cancel", id="picker-cancel")
+
+    @on(DirectoryTree.NodeHighlighted)
+    def _highlighted(self, event: DirectoryTree.NodeHighlighted) -> None:
+        entry = event.node.data
+        if entry is not None:
+            self.query_one("#picker-path", Input).value = str(entry.path)
+
+    @on(DirectoryTree.DirectorySelected)
+    def _selected(self, event: DirectoryTree.DirectorySelected) -> None:
+        self.query_one("#picker-path", Input).value = str(event.path)
+
+    @on(Button.Pressed, "#picker-use")
+    def _use(self) -> None:
+        raw = self.query_one("#picker-path", Input).value.strip().strip('"')
+        target = Path(raw).expanduser()
+        if not raw or not target.is_dir():
+            self.notify("That path is not a directory", severity="error")
+            return
+        self.dismiss(target.resolve())
+
+    @on(Button.Pressed, "#picker-cancel")
+    def _cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ComfyUICustomNodeUpdaterApp(App[None]):
+    TITLE = "ComfyUI-Custom-Node-Updater-TUI"
     SUB_TITLE = "custom nodes"
 
     CSS = """
@@ -469,6 +564,38 @@ class RepoUpdaterApp(App[None]):
     #confirm-buttons Button {
         margin-left: 2;
     }
+    FolderPickerScreen {
+        align: center middle;
+    }
+    #picker-box {
+        width: 90;
+        height: 80%;
+        border: round $primary;
+        background: $surface;
+        padding: 1 2;
+    }
+    #picker-title {
+        height: auto;
+    }
+    #picker-hint {
+        height: auto;
+        padding-bottom: 1;
+    }
+    #picker-path {
+        height: 3;
+    }
+    #picker-tree {
+        height: 1fr;
+        border: round $panel;
+    }
+    #picker-buttons {
+        height: auto;
+        padding-top: 1;
+        align-horizontal: right;
+    }
+    #picker-buttons Button {
+        margin-left: 2;
+    }
     """
 
     BINDINGS = [
@@ -479,6 +606,7 @@ class RepoUpdaterApp(App[None]):
         Binding("p", "pull", "Pull"),
         Binding("s", "toggle_autostash", "Autostash"),
         Binding("f", "toggle_fetch", "Fetch"),
+        Binding("o", "choose_folder", "Folder"),
         Binding("t", "cycle_theme", "Theme"),
         Binding("ctrl+f", "focus_filter", "Filter"),
         Binding("escape", "focus_table", "Repos", show=False),
@@ -516,7 +644,6 @@ class RepoUpdaterApp(App[None]):
 
     def on_mount(self) -> None:
         self.theme = THEMES[0]
-        self.sub_title = str(self._nodes_dir)
         table = self.query_one("#repos", DataTable)
         for key, label, width in COLUMNS:
             table.add_column(label, key=key, width=width)
@@ -527,20 +654,46 @@ class RepoUpdaterApp(App[None]):
         table.border_title = "Repositories"
         self.query_one("#detail", VerticalScroll).border_title = "Details"
         self.query_one("#activity", RichLog).border_title = "Activity"
+        table.focus()
+        if self._nodes_dir is None or not self._nodes_dir.is_dir():
+            self.sub_title = "choose a folder"
+            self._log("no custom_nodes folder found - [bold]press o[/bold] or pick one below")
+            self._prompt_for_folder()
+        else:
+            self._activate(self._nodes_dir, remember=False)
+
+    def _prompt_for_folder(self) -> None:
+        start = Path.cwd()
+        self.push_screen(FolderPickerScreen(start), callback=self._folder_chosen)
+
+    def _folder_chosen(self, chosen: Path | None) -> None:
+        if chosen is None:
+            self.notify("No folder chosen - press o to try again", severity="warning")
+            return
+        self._activate(chosen, remember=True)
+
+    def _activate(self, nodes_dir: Path, remember: bool) -> None:
+        """Point the app at a custom_nodes directory and scan it."""
+        self._nodes_dir = nodes_dir
+        self._selected.clear()
+        self._highlighted = None
+        self.sub_title = str(nodes_dir)
+        if remember:
+            save_nodes_dir(nodes_dir)
         self._discover()
         self._rebuild_table()
         self._update_summary()
         self._update_detail()
-        self.query_one("#activity", RichLog).write(
-            f"[dim]{self._stamp()}[/dim] scanning [bold]{escape(str(self._nodes_dir))}[/bold]"
-        )
-        table.focus()
+        self._log(f"scanning [bold]{escape(str(nodes_dir))}[/bold]")
         self._start_scan(fetch=self._fetch_enabled)
 
     # -- discovery and rendering ------------------------------------------------
 
     def _discover(self) -> None:
         self._repos = []
+        if self._nodes_dir is None:
+            self._by_name = {}
+            return
         for entry in sorted(self._nodes_dir.iterdir()):
             if entry.name.startswith(".") or not entry.is_dir():
                 continue
@@ -649,6 +802,9 @@ class RepoUpdaterApp(App[None]):
     # -- scanning ---------------------------------------------------------------
 
     def _start_scan(self, fetch: bool) -> None:
+        if self._nodes_dir is None:
+            self.notify("Choose a custom_nodes folder first (press o)", severity="warning")
+            return
         if self._scanning:
             self.notify("Scan already running", severity="warning")
             return
@@ -819,6 +975,13 @@ class RepoUpdaterApp(App[None]):
     def action_refresh(self) -> None:
         self._start_scan(fetch=self._fetch_enabled)
 
+    def action_choose_folder(self) -> None:
+        if self._scanning:
+            self.notify("Wait for the scan to finish", severity="warning")
+            return
+        start = self._nodes_dir or Path.cwd()
+        self.push_screen(FolderPickerScreen(start), callback=self._folder_chosen)
+
     def action_toggle_autostash(self) -> None:
         self._autostash = not self._autostash
         self._update_summary()
@@ -890,7 +1053,7 @@ def self_test() -> None:
         (demo / "base.txt").write_text("base\nlocal edit\n", encoding="utf-8")  # no overlap
         (overlap / "README.md").write_text("v1\nlocal edit\n", encoding="utf-8")  # overlaps README
 
-        app = RepoUpdaterApp(nodes, fetch_enabled=True, autostash=True)
+        app = ComfyUICustomNodeUpdaterApp(nodes, fetch_enabled=True, autostash=True)
 
         async def exercise() -> None:
             async with app.run_test(size=(150, 45)) as pilot:
@@ -932,7 +1095,7 @@ def self_test() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="ComfyUI custom-node repo updater TUI")
+    parser = argparse.ArgumentParser(description="ComfyUI-Custom-Node-Updater-TUI")
     parser.add_argument("--nodes-dir", type=Path, default=None, help="Directory of git repos to scan")
     parser.add_argument("--no-fetch", action="store_true", help="Compare against local refs only")
     parser.add_argument("--no-autostash", action="store_true", help="Skip dirty repos instead of stashing")
@@ -943,7 +1106,7 @@ def main() -> None:
         self_test()
         return
 
-    app = RepoUpdaterApp(
+    app = ComfyUICustomNodeUpdaterApp(
         nodes_dir=args.nodes_dir,
         fetch_enabled=not args.no_fetch,
         autostash=not args.no_autostash,
