@@ -1,5 +1,7 @@
 # ComfyUI-Custom-Node-Updater-TUI
 
+![ComfyUI-Custom-Node-Updater-TUI](preview.png)
+
 A terminal UI for keeping every git-based ComfyUI custom node up to date, safely.
 
 Point it at your `custom_nodes` folder and it scans every repository inside, fetches
