@@ -9,10 +9,6 @@ upstream in parallel, and shows you exactly which checkouts are behind. Updates 
 **fast-forward only**: it never creates a merge commit, never rebases, and never
 touches a repo that has diverged or would lose work.
 
-```
- 127 repos  -  6 behind  -  0 diverged  -  3 modified  -  2 forks  -  4 selected  -  autostash on  -  fetch on
-```
-
 ---
 
 ## Table of contents
@@ -117,7 +113,7 @@ Useful first runs:
 
 ```sh
 # Scan a specific folder once, without saving it
-python -X utf8 ComfyUI-Custom-Node-Updater-TUI.py --nodes-dir "C:\Tavern\ComfyUI\custom_nodes"
+python -X utf8 ComfyUI-Custom-Node-Updater-TUI.py --nodes-dir "C:\ComfyUI\custom_nodes"
 
 # Look at what is behind without hitting the network
 python -X utf8 ComfyUI-Custom-Node-Updater-TUI.py --no-fetch
@@ -328,7 +324,7 @@ Format:
 
 ```json
 {
-  "nodes_dir": "C:\\Tavern\\ComfyUI\\custom_nodes"
+  "nodes_dir": "C:\\ComfyUI\\custom_nodes"
 }
 ```
 
