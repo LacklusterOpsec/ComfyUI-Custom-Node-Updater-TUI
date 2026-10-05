@@ -1,0 +1,25 @@
+target-version = "py310"
+line-length = 120
+
+[lint]
+select = [
+    "E4",  # pycodestyle: imports
+    "E7",  # pycodestyle: statements
+    "E9",  # pycodestyle: runtime errors
+    "F",   # pyflakes
+    "W",   # pycodestyle: warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    # Long lines are already handled by the 120-char limit above; keep the
+    # remaining errors focused on correctness rather than formatting churn.
+    "SIM105",  # contextlib.suppress is not always clearer than try/except/pass
+]
+
+[lint.isort]
+known-first-party = []

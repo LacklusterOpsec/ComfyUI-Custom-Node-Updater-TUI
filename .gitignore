@@ -2,10 +2,13 @@
 __pycache__/
 *.py[cod]
 
-# Virtual environments
+# Virtual environments (ComfyUI installs also ship .venv132 / venv132)
 .venv/
+.venv*/
 venv/
+venv*/
 env/
+env*/
 *.egg-info/
 
 # Tooling caches
