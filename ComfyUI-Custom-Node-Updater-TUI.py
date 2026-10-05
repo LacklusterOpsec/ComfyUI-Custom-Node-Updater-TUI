@@ -369,12 +369,17 @@ def pull(repo: Repo, autostash: bool) -> tuple[bool, str]:
     if reason:
         return False, reason
     stashed = False
+    # pull_reason() already rejects a missing target, but the type checker cannot
+    # see that, and passing None through to git() would raise instead of report.
+    target = repo.target
+    if target is None:
+        return False, "no upstream"
     if repo.dirty and autostash:
         proc = git(repo.path, "stash", "push", "--include-untracked", "-m", "ComfyUI-Custom-Node-Updater-TUI: auto-stash")
         if proc is None or proc.returncode != 0:
             return False, "stash failed"
         stashed = True
-    proc = git(repo.path, "merge", "--ff-only", repo.target)
+    proc = git(repo.path, "merge", "--ff-only", target)
     if proc is None:
         if stashed:
             git(repo.path, "stash", "pop")
@@ -383,7 +388,7 @@ def pull(repo: Repo, autostash: bool) -> tuple[bool, str]:
         lines = (proc.stderr or proc.stdout).strip().splitlines()
         if stashed:
             git(repo.path, "stash", "pop")
-        return False, "fast-forward failed: " + (lines[-1] if lines else repo.target)
+        return False, "fast-forward failed: " + (lines[-1] if lines else target)
     if stashed:
         pop = git(repo.path, "stash", "pop")
         if pop is None or pop.returncode != 0:
