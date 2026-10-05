@@ -24,9 +24,11 @@ remembered in a small config file for next time.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1003,8 +1005,6 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
 
 def self_test() -> None:
     """Build throwaway repos on disk and exercise scan + pull without a network."""
-    import asyncio
-    import tempfile
 
     def run(cwd: Path, *args: str) -> None:
         proc = subprocess.run(
