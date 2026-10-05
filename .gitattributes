@@ -1,0 +1,8 @@
+# Normalize line endings so the launchers work on every platform.
+# Shell scripts must use LF or Linux/macOS fail with "bad interpreter".
+*.sh text eol=lf
+*.py text eol=lf
+
+# Windows launchers keep CRLF.
+*.bat text eol=crlf
+*.ps1 text eol=crlf

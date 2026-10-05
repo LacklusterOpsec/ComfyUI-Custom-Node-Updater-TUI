@@ -34,8 +34,9 @@ touches a repo that has diverged or would lose work.
   - [Command-line flags](#command-line-flags)
   - [Environment variables](#environment-variables)
   - [Config file](#config-file)
-- [Launcher script (Windows)](#launcher-script-windows)
-- [Running on macOS and Linux](#running-on-macos-and-linux)
+- [Launcher scripts](#launcher-scripts)
+  - [Windows (batch and PowerShell)](#windows-batch-and-powershell)
+  - [macOS and Linux (shell)](#macos-and-linux-shell)
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
 - [Development and self-test](#development-and-self-test)
@@ -81,7 +82,8 @@ to do the dangerous part (anything that could overwrite your work).
   import annotations`; 3.13 is what it is developed and tested against.
 - **git** available on your `PATH`.
 - The **`textual`** and **`rich`** Python packages.
-- Windows, macOS, or Linux. A Windows launcher (`ComfyUI-Custom-Node-Updater-TUI.bat`) is included.
+- Windows, macOS, or Linux. Launchers are included for all three: a batch file and a
+  PowerShell script for Windows, and a POSIX shell script for macOS/Linux.
 
 ## Installation
 
@@ -94,7 +96,7 @@ pip install textual rich
 ```
 
 If your ComfyUI uses a venv, install the dependencies into that same interpreter, or
-point the launcher at it (see [Launcher script](#launcher-script-windows)).
+point a launcher at it (see [Launcher scripts](#launcher-scripts)).
 
 There is no packaging step and no entry point to install - it is a single script.
 
@@ -102,7 +104,10 @@ There is no packaging step and no entry point to install - it is a single script
 
 **Windows:** double-click `ComfyUI-Custom-Node-Updater-TUI.bat`, or run it from a terminal. It finds a
 ComfyUI venv automatically, falls back to `python` on your `PATH`, and pauses so you
-can read any error.
+can read any error. `ComfyUI-Custom-Node-Updater-TUI.ps1` does the same from PowerShell.
+
+**macOS/Linux:** run `./ComfyUI-Custom-Node-Updater-TUI.sh` (after `chmod +x`), or invoke
+the script directly as shown below.
 
 **Any platform, manually:**
 
@@ -313,7 +318,7 @@ summary bar.
 |----------------------------|-----------------------------------------------------------------------------------------------|
 | `COMFYUI_CUSTOM_NODES`     | Path to the `custom_nodes` folder. Checked before the saved config.                            |
 | `COMFYUI_DIR`              | Path to the ComfyUI install; `custom_nodes` is appended. Checked after the saved config.        |
-| `COMFYUI_PYTHON`           | Full path to the Python interpreter the Windows launcher should use.                           |
+| `COMFYUI_PYTHON`           | Full path to the Python interpreter the launchers should use.                                 |
 | `APPDATA` / `XDG_CONFIG_HOME` | Base directory for the config file (set by the OS; read only).                              |
 
 ### Config file
@@ -336,26 +341,41 @@ If the saved folder no longer exists, it is ignored and detection continues. Del
 the file simply forgets your choice. Autostash and fetch are runtime toggles and are
 **not** persisted - they reset to their defaults (both on) each launch.
 
-## Launcher script (Windows)
+## Launcher scripts
 
-`ComfyUI-Custom-Node-Updater-TUI.bat` is a convenience wrapper that finds a suitable
-Python and runs the script. It does not hardcode any venv name. In order it tries:
+Three convenience wrappers find a suitable Python and run the script. None of them
+hardcode a venv name or an absolute path. In order they try:
 
-1. `%COMFYUI_PYTHON%`, if set and the file exists.
-2. A virtual environment inside `%COMFYUI_DIR%` (default: two levels above the script),
-   looking for `.venv`, `venv`, `env`, `.venv132`, or `venv132` and using
-   `Scripts\python.exe`.
+1. `COMFYUI_PYTHON` (`%COMFYUI_PYTHON%` on Windows), if set and the file exists.
+2. A virtual environment inside `COMFYUI_DIR` (default: two levels above the script),
+   looking for `.venv`, `venv`, `env`, `.venv132`, or `venv132`.
 3. The same set of venv names in the script's parent directory, then the script folder.
-4. `python` on your `PATH`.
+4. `python` on your `PATH` (`python3`, then `python`, on macOS/Linux).
 
-It runs the script with `-X utf8`, propagates the exit code, and pauses so the window
-stays open. If your ComfyUI lives somewhere unusual, set `COMFYUI_DIR` (or
-`COMFYUI_PYTHON`) before launching.
+All three run the script with `-X utf8` and forward any arguments you pass. If your
+ComfyUI lives somewhere unusual, set `COMFYUI_DIR` (or `COMFYUI_PYTHON`) before
+launching.
 
-## Running on macOS and Linux
+### Windows (batch and PowerShell)
 
-There is no launcher, so run the script directly with an interpreter that has `textual`
-and `rich` installed:
+- `ComfyUI-Custom-Node-Updater-TUI.bat` - double-click friendly. Looks for
+  `Scripts\python.exe`, propagates the exit code, and pauses so the window stays open.
+- `ComfyUI-Custom-Node-Updater-TUI.ps1` - the same resolution logic for PowerShell.
+  Run it with `.\ComfyUI-Custom-Node-Updater-TUI.ps1` (you may need
+  `-ExecutionPolicy Bypass` if script execution is restricted).
+
+### macOS and Linux (shell)
+
+`ComfyUI-Custom-Node-Updater-TUI.sh` is a POSIX `sh` wrapper that looks for
+`bin/python` inside the venv candidates. Make it executable once, then run it:
+
+```sh
+chmod +x ComfyUI-Custom-Node-Updater-TUI.sh
+./ComfyUI-Custom-Node-Updater-TUI.sh
+```
+
+You can also run the script directly with any interpreter that has `textual` and
+`rich` installed:
 
 ```sh
 python3 -X utf8 ComfyUI-Custom-Node-Updater-TUI.py
