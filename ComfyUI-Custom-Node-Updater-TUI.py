@@ -727,7 +727,7 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
         if repo.name not in self._visible:
             return
         table = self.query_one("#repos", DataTable)
-        for cell, (key, _, _) in zip(repo.cells(repo.name in self._selected), COLUMNS):
+        for cell, (key, _, _) in zip(repo.cells(repo.name in self._selected), COLUMNS, strict=False):
             table.update_cell(repo.name, key, cell)
 
     def _update_summary(self) -> None:
