@@ -40,6 +40,7 @@ touches a repo that has diverged or would lose work.
 - [Troubleshooting](#troubleshooting)
 - [Limitations](#limitations)
 - [Development and self-test](#development-and-self-test)
+- [Changelog](#changelog)
 - [License](#license)
 
 ---
@@ -447,6 +448,12 @@ OK: scanned 4 repos, pulled demo (kept local edits), skipped overlap (edits over
 
 The test covers the happy path, autostash with non-overlapping edits, the intentionally
 skipped overlap case, and a diverged repo that must be left untouched.
+
+## Changelog
+
+Notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md), which follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## License
 
