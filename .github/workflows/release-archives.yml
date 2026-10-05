@@ -1,0 +1,99 @@
+name: Release archives
+
+# Build tar.gz and zip archives of the tagged source and attach them to the
+# GitHub Release for that tag, so they show up as downloadable assets.
+#
+# Runs automatically when a version tag (v*) is pushed. Can also be run by hand
+# from the Actions tab, optionally for a specific existing tag.
+#
+# Note: for a tag push, GitHub reads this workflow from the tagged commit, so it
+# only fires for tags created after this file is on the default branch. Use the
+# manual "Run workflow" button to build archives for older tags.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build archives for (defaults to the latest tag)'
+        required: false
+        type: string
+
+# Needed to create the release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  archive:
+    name: Build and attach archives
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # Full history and tags so `git describe` and `git archive` work.
+          fetch-depth: 0
+
+      - name: Resolve the tag to archive
+        id: version
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script, so a crafted input cannot inject shell commands.
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG}" ]; then
+            tag="${INPUT_TAG}"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="$(git describe --tags --abbrev=0)"
+          else
+            tag="${REF_NAME}"
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag '${tag}' does not exist in this repository."
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "name=ComfyUI-Custom-Node-Updater-TUI-${tag}" >> "$GITHUB_OUTPUT"
+          echo "Archiving ${tag}"
+
+      - name: Build tar.gz and zip archives
+        env:
+          NAME: ${{ steps.version.outputs.name }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          # git archive exports only tracked files (no .git, no ignored cruft)
+          # and prefixes every path with a single top-level folder so the
+          # archive extracts cleanly.
+          git archive --format=tar.gz --prefix="${NAME}/" -o "dist/${NAME}.tar.gz" "${TAG}"
+          git archive --format=zip    --prefix="${NAME}/" -o "dist/${NAME}.zip"    "${TAG}"
+
+          # Checksums so downloaders can verify the archives.
+          ( cd dist && sha256sum "${NAME}.tar.gz" "${NAME}.zip" > SHA256SUMS.txt )
+
+          ls -lh dist
+
+      - name: Create or update the release and upload the archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} exists; uploading assets."
+            gh release upload "${TAG}" dist/* --clobber
+          else
+            echo "Creating release ${TAG}."
+            gh release create "${TAG}" dist/* \
+              --title "${TAG}" \
+              --generate-notes
+          fi
