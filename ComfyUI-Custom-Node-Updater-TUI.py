@@ -828,9 +828,7 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
         repos = list(self._repos)
         with ThreadPoolExecutor(max_workers=min(MAX_FETCH_THREADS, max(len(repos), 1))) as pool:
             futures = {pool.submit(self._scan_one, repo, fetch): repo for repo in repos}
-            done = 0
-            for future in as_completed(futures):
-                done += 1
+            for done, future in enumerate(as_completed(futures), start=1):
                 repo = futures[future]
                 try:
                     future.result()
