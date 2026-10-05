@@ -31,12 +31,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 from rich.markup import escape
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
@@ -403,7 +404,7 @@ def pull(repo: Repo, autostash: bool) -> tuple[bool, str]:
 class ConfirmScreen(ModalScreen[bool]):
     """Show exactly what will be pulled and what will be skipped."""
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("escape", "cancel", "Cancel"),
         Binding("q", "cancel", "Cancel", show=False),
     ]
@@ -451,7 +452,7 @@ class ConfirmScreen(ModalScreen[bool]):
 class FolderPickerScreen(ModalScreen[Path | None]):
     """Browse for the custom_nodes folder when it cannot be found automatically."""
 
-    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+    BINDINGS: ClassVar[list[BindingType]] = [Binding("escape", "cancel", "Cancel")]
 
     def __init__(self, start: Path) -> None:
         super().__init__()
@@ -603,7 +604,7 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("r", "refresh", "Refresh"),
         Binding("space", "toggle_select", "Select"),
         Binding("a", "select_behind", "Select outdated"),
