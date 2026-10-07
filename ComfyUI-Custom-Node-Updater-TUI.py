@@ -37,10 +37,11 @@ from typing import ClassVar
 
 from rich.markup import escape
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding, BindingType
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.geometry import Size
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
@@ -58,6 +59,7 @@ GIT_TIMEOUT = 60
 FETCH_TIMEOUT = 180
 MAX_DETAIL_COMMITS = 15
 MAX_FETCH_THREADS = 8
+RESIZE_POLL_INTERVAL = 0.2
 THEMES = ["catppuccin-mocha", "catppuccin-macchiato", "tokyo-night", "gruvbox", "nord", "textual-dark"]
 
 GIT_ENV = {
@@ -501,6 +503,30 @@ class FolderPickerScreen(ModalScreen[Path | None]):
         self.dismiss(None)
 
 
+class RepoTable(DataTable):
+    """Repository table whose Repo column stretches to fill the left pane."""
+
+    def fit_repo_column(self) -> None:
+        """Widen the Repo column so the fixed columns fill the table exactly."""
+        repo_column = self.columns.get("repo")
+        if not repo_column or self.size.width <= 0:
+            return
+        padding = 2 * self.cell_padding
+        fixed = sum(padding + width for key, _, width in COLUMNS if key != "repo")
+        repo_min = next(width for key, _, width in COLUMNS if key == "repo")
+        available = self.size.width - self.scrollbar_size_vertical
+        width = max(repo_min, available - fixed - padding)
+        if repo_column.width == width:
+            return
+        repo_column.width = width
+        total = sum(column.get_render_width(self) for column in self.ordered_columns)
+        self.virtual_size = Size(total, self.virtual_size.height)
+        self.refresh()
+
+    def on_resize(self, _: events.Resize) -> None:
+        self.call_after_refresh(self.fit_repo_column)
+
+
 class ComfyUICustomNodeUpdaterApp(App[None]):
     TITLE = "ComfyUI-Custom-Node-Updater-TUI"
     SUB_TITLE = "custom nodes"
@@ -530,7 +556,9 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
         border: round $primary;
     }
     #side {
-        width: 48;
+        width: 38%;
+        min-width: 36;
+        max-width: 72;
     }
     #detail {
         height: 1fr;
@@ -643,12 +671,28 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
         with Horizontal(id="body"):
             with Vertical(id="left"):
                 yield Input(placeholder="filter repos...", id="filter")
-                yield DataTable(id="repos", cursor_type="row", zebra_stripes=True, show_row_labels=False)
+                yield RepoTable(id="repos", cursor_type="row", zebra_stripes=True, show_row_labels=False)
             with Vertical(id="side"):
                 with VerticalScroll(id="detail"):
                     yield Static("", id="detail-body")
                 yield RichLog(id="activity", markup=True, max_lines=400, wrap=True, min_width=24)
         yield Footer()
+
+    def on_load(self) -> None:
+        # Textual's Windows driver disables ENABLE_WINDOW_INPUT on stdin, so a
+        # WINDOW_BUFFER_SIZE_EVENT never reaches the app and it keeps painting at
+        # the old size. Poll the OS size and repost a Resize when it changes.
+        self._terminal_size = self.size
+        self.set_interval(RESIZE_POLL_INTERVAL, self._poll_terminal_size)
+
+    def _poll_terminal_size(self) -> None:
+        try:
+            size = Size(*os.get_terminal_size())
+        except OSError:
+            return
+        if size != self._terminal_size:
+            self._terminal_size = size
+            self.post_message(events.Resize(size, size))
 
     def on_mount(self) -> None:
         self.theme = THEMES[0]
@@ -660,6 +704,7 @@ class ComfyUICustomNodeUpdaterApp(App[None]):
         self._progress = self.query_one("#progress", ProgressBar)
         self._progress.display = False
         table.border_title = "Repositories"
+        self.call_after_refresh(table.fit_repo_column)
         self.query_one("#detail", VerticalScroll).border_title = "Details"
         self.query_one("#activity", RichLog).border_title = "Activity"
         table.focus()
