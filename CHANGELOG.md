@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The TUI now notices terminal resizes on Windows.** Textual's Windows driver puts
+  stdin into virtual-terminal input mode, which stops `WINDOW_BUFFER_SIZE_EVENT` from
+  reaching the app, so it kept painting at the old size and never grew to fill the
+  window. The app now polls the OS terminal size and reposts a resize event when it
+  changes, which is how Windows Terminal resizes are picked up.
+- **The interface now fills the terminal when it is resized.** The repository table's
+  `Repo` column stretches to consume the width left over by the fixed columns instead of
+  leaving a blank gutter, and the detail/activity pane scales with the window (38% wide,
+  clamped to 36-72 cells) instead of being pinned at 48 cells. Previously the layout
+  reflowed on resize but the table columns kept their hard-coded widths, so a wider
+  terminal showed empty space.
+
 ## [0.2.0] - 2026-10-05
 
 ### Added
